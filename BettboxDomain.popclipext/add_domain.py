@@ -278,7 +278,7 @@ def stop_bettbox_safely() -> None:
         raise UserError("Bettbox 拒绝了正常退出请求")
     official_deadline = time.monotonic() + 5.0
     while time.monotonic() < official_deadline:
-        if bettbox_pid() is None and core_pid() is None:
+        if bettbox_pid() is None:
             write_diagnostic("stopped", "official")
             return
         time.sleep(0.25)
@@ -302,7 +302,7 @@ def stop_bettbox_safely() -> None:
 
     deadline = time.monotonic() + STOP_TIMEOUT
     while time.monotonic() < deadline:
-        if bettbox_pid() is None and core_pid() is None:
+        if bettbox_pid() is None:
             write_diagnostic("stopped", "native-terminate")
             return
         time.sleep(0.25)
@@ -317,7 +317,7 @@ def launch_bettbox_once(prefs: Path) -> int:
         raise UserError("找不到 Bettbox 应用")
     try:
         result = subprocess.run(
-            ["/usr/bin/open", "-b", APP_ID],
+            ["/usr/bin/open", "-gj", "-a", "Bettbox"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=6,

@@ -25,7 +25,7 @@
   npx playwright install chromium
   ```
 
-“加入 Bettbox”会先备份偏好设置，再以原子方式写入规则。由于 Bettbox 1.18.3 没有公开的核心重载接口，该操作会请求 Bettbox 正常退出并重新启动，以确保 Mihomo 加载新规则；不会使用模拟点击、Accessibility 自动化或强制结束进程。
+“加入 Bettbox”会先备份偏好设置，再以原子方式写入规则。由于 Bettbox 1.18.3 没有公开的核心重载接口，该操作会请求 Bettbox 正常退出并重新启动，以确保 Mihomo 加载新规则。启动使用 macOS 后台模式，不会切换到 Bettbox 窗口；旧 Core 的延后清理不会阻塞新实例启动。
 
 ## 构建
 

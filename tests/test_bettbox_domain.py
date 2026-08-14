@@ -82,7 +82,7 @@ for forbidden in [
 ]:
     assert forbidden not in source
 assert 'APP_BINARY), "--exit"' in source
-assert '"/usr/bin/open", "-b", APP_ID' in source
+assert '"/usr/bin/open", "-gj", "-a", "Bettbox"' in source
 assert "Shell Script File" in config_source
 assert "show-status" in config_source
 assert not (EXTENSION / "bettbox_ui").exists()
