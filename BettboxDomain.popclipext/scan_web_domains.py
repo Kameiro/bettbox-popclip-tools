@@ -15,6 +15,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 SUPPORT = Path.home() / "Library" / "Application Support" / "com.appshub.bettbox"
 CAPTURER = Path(__file__).with_name("capture_web_domains_playwright.js")
+PLAYWRIGHT_INSTALL = "npm install -g playwright && npx playwright install chromium"
+CHROMIUM_INSTALL = "npx playwright install chromium"
 NODE_CANDIDATES = (
     Path("/usr/local/bin/node"),
     Path("/opt/homebrew/bin/node"),
@@ -99,7 +101,16 @@ def node_path() -> Path:
     for candidate in NODE_CANDIDATES:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate
-    raise UserError("找不到 Node.js 运行时")
+    raise UserError("找不到 Node.js；请先安装 Node.js，再按安装说明配置 Playwright")
+
+
+def playwright_setup_error(stderr: str) -> tuple[str, str] | None:
+    lowered = stderr.lower()
+    if "executable doesn't exist" in lowered:
+        return CHROMIUM_INSTALL, "首次使用需安装 Chromium；安装命令已复制，请粘贴到终端运行"
+    if "找不到 playwright" in lowered or ("cannot find module" in lowered and "playwright" in lowered):
+        return PLAYWRIGHT_INSTALL, "首次使用需安装 Playwright；安装命令已复制，请粘贴到终端运行"
+    return None
 
 
 def capture(url: str) -> dict[str, Any]:
@@ -116,7 +127,13 @@ def capture(url: str) -> dict[str, Any]:
     except subprocess.TimeoutExpired as exc:
         raise UserError("网页域名捕获超时") from exc
     if completed.returncode != 0:
-        detail = completed.stderr.strip().splitlines()[0] if completed.stderr.strip() else "未知错误"
+        stderr = completed.stderr.strip()
+        setup_error = playwright_setup_error(stderr)
+        if setup_error:
+            command, message = setup_error
+            copy_text(command)
+            raise UserError(message)
+        detail = stderr.splitlines()[0] if stderr else "未知错误"
         raise UserError(detail[:160])
     try:
         payload = json.loads(completed.stdout)

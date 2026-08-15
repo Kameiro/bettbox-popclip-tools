@@ -17,6 +17,13 @@ helper = importlib.util.module_from_spec(spec)
 assert spec.loader
 spec.loader.exec_module(helper)
 
+scan_spec = importlib.util.spec_from_file_location(
+    "scan", EXTENSION / "scan_web_domains.py"
+)
+scan = importlib.util.module_from_spec(scan_spec)
+assert scan_spec.loader
+scan_spec.loader.exec_module(scan)
+
 
 def write_fixture(path: Path, config: dict) -> bytes:
     with path.open("wb") as handle:
@@ -87,6 +94,14 @@ assert "Shell Script File" in config_source
 assert "show-status" in config_source
 assert not (EXTENSION / "bettbox_ui").exists()
 assert not (EXTENSION / "bettbox_ui.swift").exists()
+assert scan.playwright_setup_error("browserType.launch: Executable doesn't exist") == (
+    scan.CHROMIUM_INSTALL,
+    "首次使用需安装 Chromium；安装命令已复制，请粘贴到终端运行",
+)
+assert scan.playwright_setup_error("Error: 找不到 Playwright") == (
+    scan.PLAYWRIGHT_INSTALL,
+    "首次使用需安装 Playwright；安装命令已复制，请粘贴到终端运行",
+)
 
 assert helper.normalize_domain("HTTPS://WWW.Example.COM.:443/a?q=1") == "www.example.com"
 assert helper.normalize_domain("例子.中国") == "xn--fsqu00a.xn--fiqs8s"

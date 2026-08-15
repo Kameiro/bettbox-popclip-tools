@@ -4,6 +4,7 @@
 
 - Launch Bettbox in the background after adding a rule.
 - Continue once the Bettbox app exits instead of waiting for a delayed Core shutdown.
+- Detect missing Playwright or Chromium and copy the required install command.
 
 ## 1.0.0 - 2026-08-07
 
