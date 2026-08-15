@@ -315,17 +315,25 @@ def launch_bettbox_once(prefs: Path) -> int:
         return int(os.environ.get("BETTBOX_TEST_LAUNCHED_PID", "901"))
     if not APP_PATH.is_dir():
         raise UserError("找不到 Bettbox 应用")
-    try:
-        result = subprocess.run(
-            ["/usr/bin/open", "-gj", "-a", "Bettbox"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=6,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise UserError("无法启动 Bettbox") from exc
-    if result.returncode != 0:
+    for attempt in range(3):
+        time.sleep(1.0 if attempt == 0 else 2.0)
+        try:
+            result = subprocess.run(
+                ["/usr/bin/open", "-g", str(APP_PATH)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=6,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            if attempt == 2:
+                raise UserError("无法启动 Bettbox") from exc
+            continue
+        if result.returncode == 0:
+            break
+        write_diagnostic("launch-retry", result.stderr.strip()[:160])
+    else:
         raise UserError("无法启动 Bettbox")
     deadline = time.monotonic() + START_TIMEOUT
     while time.monotonic() < deadline:
