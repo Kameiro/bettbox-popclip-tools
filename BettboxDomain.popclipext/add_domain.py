@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import fcntl
+import importlib
 import ipaddress
 import json
 import os
@@ -78,6 +79,29 @@ def write_diagnostic(stage: str, detail: str = "") -> None:
             handle.write(f"{stamp}\t{stage}\t{safe[:240]}\n")
     except OSError:
         pass
+
+
+def load_sibling(name: str) -> Any:
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    return importlib.import_module(name)
+
+
+def notify(message: str) -> None:
+    """Say something PopClip's tick/cross cannot. Never raises."""
+    try:
+        load_sibling("feedback").notify(message)
+    except Exception:
+        write_diagnostic("notify-failed")
+
+
+def check_for_updates() -> None:
+    """Start the once-a-day update check if one is due. Never raises, never waits."""
+    try:
+        load_sibling("update_check").maybe_check_updates()
+    except Exception:
+        write_diagnostic("update-hook-failed")
 
 
 def normalize_domain(value: str) -> str:
@@ -734,54 +758,82 @@ def spawn_worker(domain: str) -> None:
         raise UserError("无法启动 Bettbox 命令任务") from exc
 
 
+def done_message(domain: str, status: str) -> str:
+    return (
+        f"已存在，无需修改：{domain}"
+        if status == "exists"
+        else f"已加入 Bettbox 并恢复 Mihomo：{domain}"
+    )
+
+
+def report_failure(
+    reason: str, domain: str | None, popclip_call: bool, background: bool
+) -> None:
+    """Make a failure visible. The exit code (set by main) draws PopClip's cross;
+    the reason goes to a notification, because the cross carries no text."""
+    if popclip_call:
+        print(f"未添加：{reason}")
+        notify(f"未添加：{reason}")
+        check_for_updates()
+    elif background:
+        notify(f"未能加入{' ' + domain if domain else ''}：{reason}")
+        check_for_updates()
+    else:
+        print(f"未添加：{reason}")
+
+
 def main() -> int:
     popclip_call = len(sys.argv) == 1
+    background = len(sys.argv) == 3 and sys.argv[1] == "--worker"
+    run_now = len(sys.argv) == 3 and sys.argv[1] == "--run-now"
+    domain: str | None = None
     try:
         if popclip_call:
             domain = normalize_domain(os.environ.get("POPCLIP_TEXT", ""))
             write_diagnostic("start", domain)
             if test_mode():
-                status = perform_worker(domain)
-                print(
-                    f"已存在，无需修改：{domain}"
-                    if status == "exists"
-                    else f"已加入 Bettbox 并恢复 Mihomo：{domain}"
-                )
-            else:
-                prefs, support = paths()
-                config = load_config(prefs, support)
-                profile_id, profile = current_profile(config)
-                target = resolve_target(profile_id, profile, support)
-                if has_active_rule(profile, domain, target) and confirmed_applied(
-                    domain, prefs, support
-                ):
-                    print(f"已存在，无需修改：{domain}")
-                    return 0
-                spawn_worker(domain)
-                print(f"正在通过命令加入 Bettbox：{domain}")
+                message = done_message(domain, perform_worker(domain))
+                print(message)
+                notify(message)
+                check_for_updates()
+                return 0
+            prefs, support = paths()
+            config = load_config(prefs, support)
+            profile_id, profile = current_profile(config)
+            target = resolve_target(profile_id, profile, support)
+            if has_active_rule(profile, domain, target) and confirmed_applied(
+                domain, prefs, support
+            ):
+                print(f"已存在，无需修改：{domain}")
+                check_for_updates()
+                return 0
+            spawn_worker(domain)
+            print(f"正在通过命令加入 Bettbox：{domain}")
+            # The update check waits for the worker: Bettbox restarting cuts the network.
             return 0
-        if len(sys.argv) == 3 and sys.argv[1] in {"--worker", "--run-now"}:
+        if background or run_now:
             domain = normalize_domain(sys.argv[2])
             status = perform_worker(domain)
-            if sys.argv[1] == "--run-now":
+            if run_now:
                 print(
                     f"已存在且已生效：{domain}"
                     if status == "exists"
                     else f"已加入 Bettbox 并恢复 Mihomo：{domain}"
                 )
+            else:
+                notify(done_message(domain, status))
+                check_for_updates()
             return 0
         raise UserError("调用参数无效")
     except UserError as exc:
         write_diagnostic("error", str(exc))
-        if popclip_call or (len(sys.argv) > 1 and sys.argv[1] == "--run-now"):
-            print(f"未添加：{exc}")
-            return 0
+        report_failure(str(exc), domain, popclip_call, background)
         return 1
     except Exception:
         write_diagnostic("error", "unexpected")
-        if popclip_call or (len(sys.argv) > 1 and sys.argv[1] == "--run-now"):
-            print("未添加：写入或验证失败，原配置已保留/恢复")
-            return 0
+        report_failure(
+            "写入或验证失败，原配置已保留/恢复", domain, popclip_call, background
+        )
         return 1
 
 

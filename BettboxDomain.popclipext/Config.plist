@@ -7,11 +7,28 @@
   <key>Extension Identifier</key>
   <string>local.luna.popclip.bettbox-domain</string>
   <key>Extension Version</key>
-  <string>1.0.2</string>
+  <string>1.1.0</string>
   <key>Extension Description</key>
 	<string>通过命令添加 Bettbox 域名规则、检查实际连接，并扫描网页引用的域名。</string>
   <key>Required Software Version</key>
   <integer>4151</integer>
+  <key>Options Title</key>
+  <string>更新设置</string>
+  <key>Options</key>
+  <array>
+    <dict>
+      <key>Option Identifier</key>
+      <string>autoupdatecheck</string>
+      <key>Option Type</key>
+      <string>boolean</string>
+      <key>Option Label</key>
+      <string>自动检查插件更新</string>
+      <key>Option Description</key>
+      <string>每天最多向 GitHub 发送一次公开的版本查询，不发送任何域名或 Bettbox 配置。有新版本时会先询问，经你确认才下载。</string>
+      <key>Option Default Value</key>
+      <true/>
+    </dict>
+  </array>
   <key>Actions</key>
   <array>
     <dict>
