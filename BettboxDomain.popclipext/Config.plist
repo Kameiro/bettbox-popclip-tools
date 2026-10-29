@@ -7,7 +7,7 @@
   <key>Extension Identifier</key>
   <string>local.luna.popclip.bettbox-domain</string>
   <key>Extension Version</key>
-  <string>1.0.0</string>
+  <string>1.0.2</string>
   <key>Extension Description</key>
 	<string>通过命令添加 Bettbox 域名规则、检查实际连接，并扫描网页引用的域名。</string>
   <key>Required Software Version</key>
