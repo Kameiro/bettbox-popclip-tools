@@ -21,6 +21,7 @@ from typing import Any, Iterable
 
 APP_ID = "com.appshub.bettbox"
 PREFS_PATH = Path.home() / "Library" / "Preferences" / f"{APP_ID}.plist"
+SUPPORT_PATH = Path.home() / "Library" / "Application Support" / APP_ID
 SUPPORTED_DOMAIN_RULES = {"DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD"}
 SUPPORTED_IP_RULES = {"IP-CIDR", "IP-CIDR6"}
 UNIVERSAL_RULES = {"MATCH", "FINAL"}
@@ -401,7 +402,30 @@ def live_probe(raw_target: str, default_scheme: str, timeout: float) -> dict[str
     return result
 
 
+def support_dir_for(plist_path: Path) -> Path:
+    """Application Support folder belonging to this preferences file (a test fixture keeps it next to the plist)."""
+    return SUPPORT_PATH if plist_path == PREFS_PATH else plist_path.parent / "support"
+
+
+def config_json_path(plist_path: Path) -> Path:
+    return support_dir_for(plist_path) / "config.json"
+
+
+def read_config_json(path: Path) -> dict[str, Any] | None:
+    """config.json holds the config Bettbox >= 1.19 reads first; None if missing, unreadable or without profiles."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("profiles"), list) and data["profiles"]:
+        return data
+    return None
+
+
 def load_config(plist_path: Path) -> dict[str, Any]:
+    from_file = read_config_json(config_json_path(plist_path))
+    if from_file is not None:
+        return from_file
     if not plist_path.exists():
         fail(f"preferences file not found: {plist_path}")
     try:
@@ -673,10 +697,13 @@ def runtime_snapshot(plist_path: Path) -> dict[str, Any]:
         "bettbox_running": process_exists("Bettbox"),
         "bettbox_core_running": process_exists("BettboxCore"),
     }
-    try:
-        preferences_mtime = dt.datetime.fromtimestamp(plist_path.stat().st_mtime)
-    except OSError:
-        preferences_mtime = None
+    mtimes = []
+    for stored in (config_json_path(plist_path), plist_path):
+        try:
+            mtimes.append(stored.stat().st_mtime)
+        except OSError:
+            continue
+    preferences_mtime = dt.datetime.fromtimestamp(max(mtimes)) if mtimes else None
     if preferences_mtime is not None:
         result["preferences_mtime"] = preferences_mtime.isoformat(timespec="seconds")
     core_started = process_start_time("BettboxCore")
@@ -693,7 +720,7 @@ def runtime_snapshot(plist_path: Path) -> dict[str, Any]:
 def runtime_note(live: bool = False) -> str:
     if live:
         return "已发起真实 HTTP(S) 请求；未强制重载 BettboxCore，流量使用当前系统网络路径。"
-    return "只检查 plist 文件；未验证运行中的 BettboxCore 是否已重载覆写规则。"
+    return "只检查配置文件（config.json / plist）；未验证运行中的 BettboxCore 是否已重载覆写规则。"
 
 
 def normal_report(
