@@ -6,6 +6,7 @@ import json
 import os
 import plistlib
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -48,8 +49,11 @@ def fixture_env(root: Path) -> dict[str, str]:
             "BETTBOX_TEST_LAUNCHED_PID": "901",
             "BETTBOX_TEST_TUN_READY": "1",
             "BETTBOX_TEST_PROXY_READY": "1",
+            "BETTBOX_TEST_NOTIFY_PATH": str(root / "notify.log"),
+            "BETTBOX_TEST_UPDATE_EVENTS_PATH": str(root / "update-events.log"),
         }
     )
+    env.pop("POPCLIP_OPTION_AUTOUPDATECHECK", None)
     return env
 
 
@@ -92,6 +96,38 @@ assert 'APP_BINARY), "--exit"' in source
 assert '"/usr/bin/open", "-g", str(APP_PATH)' in source
 assert "Shell Script File" in config_source
 assert "show-status" in config_source
+# AppleScript is allowed in exactly one place, feedback.py, and only for the two
+# statements that show a notification or a dialog. Nothing may script another
+# application, press keys or click.
+for script in sorted(EXTENSION.glob("*.py")):
+    text = script.read_text(encoding="utf-8")
+    if script.name in {"feedback.py", "inspect_domain.py", "scan_web_domains.py"}:
+        continue
+    assert "osascript" not in text, script.name
+for script in sorted(EXTENSION.glob("*.py")):
+    text = script.read_text(encoding="utf-8")
+    if "osascript" not in text:
+        continue
+    for forbidden in [
+        "System Events",
+        "keystroke",
+        "key code",
+        "click",
+        "tell application",
+        "tell process",
+        "do shell script",
+        "run script",
+        "activate",
+    ]:
+        assert forbidden not in text, (script.name, forbidden)
+sys.path.insert(0, str(EXTENSION))
+import feedback  # noqa: E402
+
+for line in feedback.NOTIFY_SCRIPT + feedback.DIALOG_SCRIPT:
+    assert line in {"on run argv", "end run", 'if gave up of answer then return ""',
+                    "return button returned of answer"} or line.startswith(
+        ("display notification ", "set answer to display dialog ")
+    ), line
 assert not (EXTENSION / "bettbox_ui").exists()
 assert not (EXTENSION / "bettbox_ui.swift").exists()
 assert scan.playwright_setup_error("browserType.launch: Executable doesn't exist") == (
@@ -147,6 +183,11 @@ with tempfile.TemporaryDirectory() as td:
     rules = profile["overrideData"]["rule"]["addedRules"]
     assert rules[0]["value"] == "DOMAIN-SUFFIX,command-only.example,🚀 手动选择"
     assert len(list((root / "support" / "backups").glob("*.bak"))) == 1
+    # The user is told that it finished, and the update check is offered a turn.
+    assert (root / "notify.log").read_text(encoding="utf-8") == (
+        "Bettbox 域名覆写\t已加入 Bettbox 并恢复 Mihomo：command-only.example\n"
+    )
+    assert (root / "update-events.log").read_text(encoding="utf-8") == "check-scheduled\n"
 
 
 with tempfile.TemporaryDirectory() as td:
@@ -215,12 +256,12 @@ def write_profile_yaml(root: Path, profile_id: str, text: str) -> None:
     (folder / f"{profile_id}.yaml").write_text(text, encoding="utf-8")
 
 
-def run_helper(root: Path, domain: str, extra_env: dict | None = None):
+def run_helper(root: Path, domain: str, extra_env: dict | None = None, check: bool = True):
     env = fixture_env(root)
     env["POPCLIP_TEXT"] = domain
     env.update(extra_env or {})
     return subprocess.run(
-        ["/usr/bin/python3", str(HELPER)], env=env, text=True, capture_output=True, check=True
+        ["/usr/bin/python3", str(HELPER)], env=env, text=True, capture_output=True, check=check
     )
 
 
@@ -276,12 +317,67 @@ with tempfile.TemporaryDirectory() as td:
     write_fixture(prefs, base_config())
     write_support_config(root, base_config())
     write_profile_yaml(root, "p1", 'proxy-groups:\n  - {"name":"GLOBAL","type":"select","proxies":["DIRECT"]}\n')
-    result = run_helper(root, "nogroup.example")
+    result = run_helper(root, "nogroup.example", check=False)
     assert "未添加：当前 profile 中没有名称含“手动选择”的策略组" in result.stdout, result.stdout
+    # A failure must not look like a success: non-zero exit (PopClip draws a cross)
+    # plus a notification that says why.
+    assert result.returncode == 1, result.returncode
+    assert (root / "notify.log").read_text(encoding="utf-8").endswith(
+        "未添加：当前 profile 中没有名称含“手动选择”的策略组\n"
+    )
     events = root / "events.log"
     assert not events.exists() or events.read_text(encoding="utf-8").strip() == "", "Bettbox must not be stopped"
     on_disk = json.loads((root / "support" / "config.json").read_text(encoding="utf-8"))
     assert not on_disk["profiles"][0]["overrideData"]["rule"]["addedRules"]
+
+# Input that is not a domain fails visibly too.
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    write_fixture(root / "prefs.plist", base_config())
+    result = run_helper(root, "127.0.0.1", check=False)
+    assert result.returncode == 1 and "未添加：" in result.stdout, (result.returncode, result.stdout)
+    assert "不接受 IP 地址" in (root / "notify.log").read_text(encoding="utf-8")
+
+# The background worker has no window of its own: success and failure both arrive
+# as notifications, and a failure exits non-zero.
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    write_fixture(root / "prefs.plist", base_config())
+    env = fixture_env(root)
+    done = subprocess.run(
+        ["/usr/bin/python3", str(HELPER), "--worker", "worker-ok.example"],
+        env=env, text=True, capture_output=True, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert (root / "notify.log").read_text(encoding="utf-8") == (
+        "Bettbox 域名覆写\t已加入 Bettbox 并恢复 Mihomo：worker-ok.example\n"
+    )
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    write_fixture(root / "prefs.plist", base_config())
+    write_support_config(root, base_config())
+    write_profile_yaml(root, "p1", 'proxy-groups:\n  - {"name":"GLOBAL","type":"select","proxies":["DIRECT"]}\n')
+    env = fixture_env(root)
+    failed = subprocess.run(
+        ["/usr/bin/python3", str(HELPER), "--worker", "worker-bad.example"],
+        env=env, text=True, capture_output=True, check=False,
+    )
+    assert failed.returncode == 1
+    assert (root / "notify.log").read_text(encoding="utf-8") == (
+        "Bettbox 域名覆写\t未能加入 worker-bad.example：当前 profile 中没有名称含“手动选择”的策略组\n"
+    )
+
+# The update check is offered after an action, unless the user switched it off.
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    write_fixture(root / "prefs.plist", base_config())
+    run_helper(root, "optout.example", {"POPCLIP_OPTION_AUTOUPDATECHECK": "0"})
+    assert not (root / "update-events.log").exists()
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    write_fixture(root / "prefs.plist", base_config())
+    run_helper(root, "optin.example", {"POPCLIP_OPTION_AUTOUPDATECHECK": "1"})
+    assert (root / "update-events.log").read_text(encoding="utf-8") == "check-scheduled\n"
 
 # Store selection mirrors Bettbox: config.json first, plist only as a fallback.
 with tempfile.TemporaryDirectory() as td:

@@ -27,7 +27,9 @@ python3 -m py_compile \
   "$extension_dir/add_domain.py" \
   "$extension_dir/inspect_domain.py" \
   "$extension_dir/scan_web_domains.py" \
-  "$extension_dir/bettbox_rule_test.py"
+  "$extension_dir/bettbox_rule_test.py" \
+  "$extension_dir/feedback.py" \
+  "$extension_dir/update_check.py"
 
 find "$extension_dir" -type d -name __pycache__ -prune -exec rm -rf {} +
 rm -f "$dist_dir/BettboxDomain.popclipextz"

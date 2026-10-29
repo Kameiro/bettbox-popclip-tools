@@ -180,6 +180,29 @@ def run(selected: str) -> tuple[str, str]:
     return format_report(payload)
 
 
+def check_for_updates() -> None:
+    """Start the once-a-day update check if one is due. Never raises, never waits."""
+    if os.environ.get("POPCLIP_TEST_MODE") == "1":
+        return
+    try:
+        here = str(Path(__file__).resolve().parent)
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import update_check
+
+        update_check.maybe_check_updates()
+    except Exception:
+        pass
+
+
+def fail(message: str) -> int:
+    """Non-zero exit makes PopClip draw its cross; the notification says why."""
+    if os.environ.get("POPCLIP_TEST_MODE") != "1":
+        notify_user(message)
+    print(message)
+    return 1
+
+
 def main() -> int:
     try:
         report, summary = run(os.environ.get("POPCLIP_TEXT", ""))
@@ -193,11 +216,11 @@ def main() -> int:
             print(summary)
         return 0
     except UserError as exc:
-        print(f"检查失败：{exc}")
-        return 0
+        return fail(f"检查失败：{exc}")
     except Exception:
-        print("检查失败：未预期的错误")
-        return 0
+        return fail("检查失败：未预期的错误")
+    finally:
+        check_for_updates()
 
 
 if __name__ == "__main__":
